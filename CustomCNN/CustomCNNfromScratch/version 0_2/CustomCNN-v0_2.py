@@ -5,7 +5,7 @@ import argparse
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import List, Tuple, Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,9 +18,10 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 from PIL import Image
 from sklearn.metrics import confusion_matrix, recall_score, f1_score
+from sklearn.model_selection import train_test_split
 from torch import Tensor
-from torch.utils.data import DataLoader, WeightedRandomSampler
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, WeightedRandomSampler
 
 
 # # 设置日志
@@ -28,82 +29,236 @@ from torch.utils.data import Dataset
 # logger = logging.getLogger(__name__)
 
 
+# class MicrobiomeImageDataset(Dataset):
+#     """
+#     A custom dataset class for handling microbiome images with age classification.
+#
+#     This dataset is designed to load and process images of microbiome samples,
+#     along with their corresponding age labels. It supports age grouping based on
+#     microbiome developmental characteristics.
+#
+#     Attributes:
+#         image_dir (str): Directory containing the image files
+#         transform (Optional[callable]): Optional transform to be applied to images
+#         phase (str): Dataset phase ('train' or 'val')
+#         data (pd.DataFrame): DataFrame containing sample information
+#         age_bins (List[Tuple[int, int]]): Age range definitions for classification
+#         class_counts (Dict[int, int]): Distribution of samples across age groups
+#     """
+#
+#     def __init__(
+#             self,
+#             csv_path: str,
+#             image_dir: str,
+#             transform: Optional[callable] = None,
+#             phase: str = 'train'
+#     ) -> None:
+#         """
+#         Initialize the MicrobiomeImageDataset.
+#
+#         Args:
+#             csv_path (str): Path to the CSV file containing sample information
+#             image_dir (str): Directory containing the image files
+#             transform (Optional[callable]): Transformations to apply to images
+#             phase (str): Dataset phase ('train' or 'val')
+#
+#         Raises:
+#             ValueError: If CSV file is missing required columns or contains invalid data
+#             FileNotFoundError: If image files are missing
+#         """
+#         super().__init__()
+#         self.image_dir = image_dir
+#         self.transform = transform
+#         self.phase = phase
+#
+#         # Load the CSV data
+#         self.data = pd.read_csv(csv_path)
+#
+#         # Define age bins based on microbiome developmental stages
+#         self.age_bins: List[Tuple[int, int]] = [
+#             (0, 2),  # Infancy
+#             (3, 6),  # Early childhood
+#             (7, 12),  # Childhood
+#             (13, 17),  # Adolescence
+#             (18, 35),  # Young adulthood
+#             (36, 55),  # Middle adulthood
+#             (56, 70),  # Early elderly
+#             (71, 110)  # Late elderly
+#             # (0,18),
+#             # (19,56),
+#             # (57,110)
+#         ]
+#
+#         # Validate data integrity
+#         self._validate_data()
+#
+#         # Calculate class distribution
+#         self.class_counts: Dict[int, int] = self._calculate_class_distribution()
+#
+#     def _validate_data(
+#             self
+#     ) -> None:
+#         """
+#         Validate the integrity and format of the input data.
+#
+#         Checks:
+#         1. Presence of required columns in CSV
+#         2. Validity of age values
+#         3. Existence of image files
+#
+#         Raises:
+#             ValueError: If data validation fails
+#             FileNotFoundError: If image files are missing
+#         """
+#         # Check required columns
+#         required_columns = ['sampleid', 'age']
+#         missing_columns = [col for col in required_columns if col not in self.data.columns]
+#         if missing_columns:
+#             raise ValueError(f"Missing required columns in CSV: {missing_columns}")
+#
+#             # Validate age ranges
+#         invalid_ages = self.data[~self.data['age'].between(0, 110)]
+#         if not invalid_ages.empty:
+#             raise ValueError(f"Invalid age values detected: {invalid_ages['age'].tolist()}")
+#
+#             # Verify image files existence
+#         for idx, row in self.data.iterrows():
+#             img_path = os.path.join(self.image_dir, f"{row['sampleid']}.jpg")
+#             if not os.path.exists(img_path):
+#                 raise FileNotFoundError(f"Image file not found: {img_path}")
+#
+#     def _calculate_class_distribution(
+#             self
+#     ) -> Dict[int, int]:
+#         """
+#         Calculate the distribution of samples across age groups.
+#
+#         Returns:
+#             Dict[int, int]: Dictionary mapping class indices to sample counts
+#         """
+#         class_counts = {i: 0 for i in range(len(self.age_bins))}
+#         for age in self.data['age']:
+#             class_idx = self.age_to_class(age)
+#             class_counts[class_idx] += 1
+#         return class_counts
+#
+#     def age_to_class(
+#             self,
+#             age: int
+#     ) -> int:
+#         """
+#         Convert age to corresponding class index based on age bins.
+#
+#         Args:
+#             age (int): Age value to convert
+#
+#         Returns:
+#             int: Class index corresponding to the age
+#         """
+#         for i, (low, high) in enumerate(self.age_bins):
+#             if low <= age <= high:
+#                 return i
+#         return len(self.age_bins) - 1  # Return last class if age exceeds all bins
+#
+#     def __len__(
+#             self
+#     ) -> int:
+#         """
+#         Get the total number of samples in the dataset.
+#
+#         Returns:
+#             int: Number of samples
+#         """
+#         return len(self.data)
+#
+#     def __getitem__(
+#             self,
+#             idx: int
+#     ) -> Tuple[torch.Tensor, int]:
+#         """
+#         Get a sample from the dataset.
+#
+#         Args:
+#             idx (int): Index of the sample to retrieve
+#
+#         Returns:
+#             Tuple[torch.Tensor, int]: Tuple containing:
+#                 - Transformed image tensor
+#                 - Age class label
+#
+#         Raises:
+#             IndexError: If index is out of range
+#             IOError: If image cannot be read
+#             RuntimeError: If image transformation fails
+#         """
+#         if idx >= len(self):
+#             raise IndexError(f"Index {idx} out of range")
+#
+#             # Get sample information
+#         sample_id = self.data.iloc[idx]['sampleid']
+#         age = self.data.iloc[idx]['age']
+#
+#         # Construct image path
+#         img_path = os.path.join(self.image_dir, f"{sample_id}.jpg")
+#
+#         try:
+#             # Load image
+#             image = Image.open(img_path).convert('RGB')
+#         except Exception as e:
+#             raise IOError(f"Failed to load image {img_path}: {str(e)}")
+#
+#             # Apply transformations
+#         if self.transform:
+#             try:
+#                 image = self.transform(image)
+#             except Exception as e:
+#                 raise RuntimeError(f"Image transformation failed for {img_path}: {str(e)}")
+#
+#                 # Get age class
+#         age_class = self.age_to_class(age)
+#
+#         return image, age_class
+
+
 class MicrobiomeImageDataset(Dataset):
     """
-    A custom dataset class for handling microbiome images with age classification.
-
-    This dataset is designed to load and process images of microbiome samples,
-    along with their corresponding age labels. It supports age grouping based on
-    microbiome developmental characteristics.
-
-    Attributes:
-        image_dir (str): Directory containing the image files
-        transform (Optional[callable]): Optional transform to be applied to images
-        phase (str): Dataset phase ('train' or 'val')
-        data (pd.DataFrame): DataFrame containing sample information
-        age_bins (List[Tuple[int, int]]): Age range definitions for classification
-        class_counts (Dict[int, int]): Distribution of samples across age groups
+    Enhanced MicrobiomeImageDataset with flexible age binning and filtering options.
     """
 
     def __init__(
             self,
-            csv_path: str,
+            data: pd.DataFrame,
             image_dir: str,
+            age_bins: List[Tuple[int, int]],
             transform: Optional[callable] = None,
             phase: str = 'train'
     ) -> None:
         """
-        Initialize the MicrobiomeImageDataset.
+        Initialize the dataset.
 
         Args:
-            csv_path (str): Path to the CSV file containing sample information
-            image_dir (str): Directory containing the image files
-            transform (Optional[callable]): Transformations to apply to images
+            data (pd.DataFrame): DataFrame containing sample information
+            image_dir (str): Directory containing image files
+            age_bins (List[Tuple[int, int]]): List of age range tuples [(min1, max1), ...]
+            transform (Optional[callable]): Image transformations
             phase (str): Dataset phase ('train' or 'val')
-
-        Raises:
-            ValueError: If CSV file is missing required columns or contains invalid data
-            FileNotFoundError: If image files are missing
         """
         super().__init__()
+        self.data = data
         self.image_dir = image_dir
+        self.age_bins = age_bins
         self.transform = transform
         self.phase = phase
 
-        # Load the CSV data
-        self.data = pd.read_csv(csv_path)
-
-        # Define age bins based on microbiome developmental stages
-        self.age_bins: List[Tuple[int, int]] = [
-            (0, 2),  # Infancy
-            (3, 6),  # Early childhood
-            (7, 12),  # Childhood
-            (13, 17),  # Adolescence
-            (18, 35),  # Young adulthood
-            (36, 55),  # Middle adulthood
-            (56, 70),  # Early elderly
-            (71, 110)  # Late elderly
-            # (0,18),
-            # (19,56),
-            # (57,110)
-        ]
-
-        # Validate data integrity
+        # Validate data
         self._validate_data()
 
         # Calculate class distribution
-        self.class_counts: Dict[int, int] = self._calculate_class_distribution()
+        self.class_counts = self._calculate_class_distribution()
 
-    def _validate_data(
-            self
-    ) -> None:
+    def _validate_data(self) -> None:
         """
         Validate the integrity and format of the input data.
-
-        Checks:
-        1. Presence of required columns in CSV
-        2. Validity of age values
-        3. Existence of image files
 
         Raises:
             ValueError: If data validation fails
@@ -113,22 +268,20 @@ class MicrobiomeImageDataset(Dataset):
         required_columns = ['sampleid', 'age']
         missing_columns = [col for col in required_columns if col not in self.data.columns]
         if missing_columns:
-            raise ValueError(f"Missing required columns in CSV: {missing_columns}")
+            raise ValueError(f"Missing required columns in data: {missing_columns}")
 
-            # Validate age ranges
+        # Validate age ranges
         invalid_ages = self.data[~self.data['age'].between(0, 110)]
         if not invalid_ages.empty:
             raise ValueError(f"Invalid age values detected: {invalid_ages['age'].tolist()}")
 
-            # Verify image files existence
+        # Verify image files existence
         for idx, row in self.data.iterrows():
             img_path = os.path.join(self.image_dir, f"{row['sampleid']}.jpg")
             if not os.path.exists(img_path):
                 raise FileNotFoundError(f"Image file not found: {img_path}")
 
-    def _calculate_class_distribution(
-            self
-    ) -> Dict[int, int]:
+    def _calculate_class_distribution(self) -> Dict[int, int]:
         """
         Calculate the distribution of samples across age groups.
 
@@ -157,11 +310,222 @@ class MicrobiomeImageDataset(Dataset):
         for i, (low, high) in enumerate(self.age_bins):
             if low <= age <= high:
                 return i
-        return len(self.age_bins) - 1  # Return last class if age exceeds all bins
+        return len(self.age_bins) - 1
 
-    def __len__(
-            self
-    ) -> int:
+    @classmethod
+    def create_datasets(
+            cls,
+            csv_path: str,
+            image_dir: str,
+            age_bins: List[Tuple[int, int]],
+            val_size: float = 0.2,
+            transforms: Optional[Dict] = None,
+            random_state: int = 42,
+            filter_params: Optional[Dict] = None
+    ) -> Tuple['MicrobiomeImageDataset', 'MicrobiomeImageDataset']:
+        """
+        Create train and validation datasets with optional filtering.
+
+        Args:
+            csv_path (str): Path to CSV file
+            image_dir (str): Image directory path
+            age_bins (List[Tuple[int, int]]): Age range definitions
+            val_size (float): Validation set proportion
+            transforms (Dict): Dictionary of transforms for train and val
+            random_state (int): Random seed
+            filter_params (Dict): Filtering parameters
+                Example: {
+                    'gender': 'F',
+                    'health_status': 'healthy',
+                    'age_range': (0, 100)
+                }
+
+        Returns:
+            Tuple[MicrobiomeImageDataset, MicrobiomeImageDataset]: Train and validation datasets
+        """
+        # Load data
+        data = pd.read_csv(csv_path)
+
+        # Apply filters if specified
+        if filter_params:
+            data = cls.filter_data(data, filter_params)
+
+        # Perform stratified split
+        train_data, val_data = cls.stratified_split(
+            data,
+            age_bins,
+            val_size=val_size,
+            random_state=random_state
+        )
+
+        # Create datasets
+        train_transform = transforms.get('train') if transforms else None
+        val_transform = transforms.get('val') if transforms else None
+
+        train_dataset = cls(
+            data=train_data,
+            image_dir=image_dir,
+            age_bins=age_bins,
+            transform=train_transform,
+            phase='train'
+        )
+
+        val_dataset = cls(
+            data=val_data,
+            image_dir=image_dir,
+            age_bins=age_bins,
+            transform=val_transform,
+            phase='val'
+        )
+
+        return train_dataset, val_dataset
+
+    @staticmethod
+    def filter_data(
+            data: pd.DataFrame,
+            filter_params: Dict
+    ) -> pd.DataFrame:
+        """
+        Filter dataset based on specified parameters.
+
+        Args:
+            data (pd.DataFrame): Input DataFrame
+            filter_params (Dict): Filtering parameters
+
+        Returns:
+            pd.DataFrame: Filtered DataFrame
+        """
+        filtered_data = data.copy()
+
+        # Filter by gender
+        if 'gender' in filter_params and 'gender' in filtered_data.columns:
+            filtered_data = filtered_data[
+                filtered_data['gender'] == filter_params['gender']
+                ]
+
+        # Filter by health status
+        if 'health_status' in filter_params and 'health_status' in filtered_data.columns:
+            filtered_data = filtered_data[
+                filtered_data['health_status'] == filter_params['health_status']
+                ]
+
+        # Filter by age range
+        if 'age_range' in filter_params:
+            min_age, max_age = filter_params['age_range']
+            filtered_data = filtered_data[
+                (filtered_data['age'] >= min_age) &
+                (filtered_data['age'] <= max_age)
+                ]
+
+        return filtered_data
+
+    @staticmethod
+    def stratified_split(
+            data: pd.DataFrame,
+            age_bins: List[Tuple[int, int]],
+            val_size: float = 0.2,
+            random_state: int = 42
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Perform stratified split based on age groups.
+
+        Args:
+            data (pd.DataFrame): Input DataFrame
+            age_bins (List[Tuple[int, int]]): Age range definitions
+            val_size (float): Validation set proportion
+            random_state (int): Random seed
+
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]: Train and validation DataFrames
+        """
+
+        # Create age group labels for stratification
+        def get_age_group(age):
+            for i, (low, high) in enumerate(age_bins):
+                if low <= age <= high:
+                    return i
+            return len(age_bins) - 1
+
+        stratify_labels = data['age'].apply(get_age_group)
+
+        train_data, val_data = train_test_split(
+            data,
+            test_size=val_size,
+            random_state=random_state,
+            stratify=stratify_labels
+        )
+
+        return train_data, val_data
+
+    def get_sampler(self) -> Optional[WeightedRandomSampler]:
+        """
+        Create weighted sampler for balanced training.
+
+        Returns:
+            Optional[WeightedRandomSampler]: Sampler for training phase
+        """
+        if self.phase != 'train':
+            return None
+
+        weights = []
+        for idx in range(len(self)):
+            age = self.data.iloc[idx]['age']
+            class_idx = self.age_to_class(age)
+            weight = 1.0 / self.class_counts[class_idx]
+            weights.append(weight)
+
+        return WeightedRandomSampler(
+            weights=weights,
+            num_samples=len(self),
+            replacement=True
+        )
+
+    def get_dataset_info(self) -> Dict:
+        """
+        Get detailed dataset information.
+
+        Returns:
+            Dict: Dataset statistics and information
+        """
+        info = {
+            'total_samples': len(self),
+            'class_distribution': self.class_counts,
+            'age_range': (self.data['age'].min(), self.data['age'].max()),
+            'phase': self.phase,
+        }
+
+        # Add gender distribution if available
+        if 'gender' in self.data.columns:
+            info['gender_distribution'] = self.data['gender'].value_counts().to_dict()
+
+        # Add health status distribution if available
+        if 'health_status' in self.data.columns:
+            info['health_status_distribution'] = self.data['health_status'].value_counts().to_dict()
+
+        return info
+
+    def print_dataset_info(self):
+        """Print dataset information in a formatted way."""
+        info = self.get_dataset_info()
+        print(f"\nDataset Phase: {info['phase']}")
+        print(f"Total Samples: {info['total_samples']}")
+
+        print("\nClass Distribution:")
+        for class_idx, count in info['class_distribution'].items():
+            age_range = self.age_bins[class_idx]
+            print(f"Age {age_range}: {count} samples")
+
+        if 'gender_distribution' in info:
+            print("\nGender Distribution:")
+            for gender, count in info['gender_distribution'].items():
+                print(f"{gender}: {count} samples")
+
+        if 'health_status_distribution' in info:
+            print("\nHealth Status Distribution:")
+            for status, count in info['health_status_distribution'].items():
+                print(f"{status}: {count} samples")
+
+    def __len__(self) -> int:
         """
         Get the total number of samples in the dataset.
 
@@ -170,10 +534,7 @@ class MicrobiomeImageDataset(Dataset):
         """
         return len(self.data)
 
-    def __getitem__(
-            self,
-            idx: int
-    ) -> Tuple[torch.Tensor, int]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         """
         Get a sample from the dataset.
 
@@ -184,85 +545,266 @@ class MicrobiomeImageDataset(Dataset):
             Tuple[torch.Tensor, int]: Tuple containing:
                 - Transformed image tensor
                 - Age class label
-
-        Raises:
-            IndexError: If index is out of range
-            IOError: If image cannot be read
-            RuntimeError: If image transformation fails
         """
         if idx >= len(self):
             raise IndexError(f"Index {idx} out of range")
 
-            # Get sample information
-        sample_id = self.data.iloc[idx]['sampleid']
-        age = self.data.iloc[idx]['age']
-
-        # Construct image path
-        img_path = os.path.join(self.image_dir, f"{sample_id}.jpg")
+        # Get sample information
+        row = self.data.iloc[idx]
+        img_path = os.path.join(self.image_dir, f"{row['sampleid']}.jpg")
 
         try:
-            # Load image
+            # Load and convert image
             image = Image.open(img_path).convert('RGB')
-        except Exception as e:
-            raise IOError(f"Failed to load image {img_path}: {str(e)}")
 
             # Apply transformations
-        if self.transform:
-            try:
+            if self.transform:
                 image = self.transform(image)
-            except Exception as e:
-                raise RuntimeError(f"Image transformation failed for {img_path}: {str(e)}")
+            else:
+                # Basic transform if none provided
+                basic_transform = transforms.Compose([
+                    transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                ])
+                image = basic_transform(image)
 
-                # Get age class
-        age_class = self.age_to_class(age)
+            # Get label
+            label = self.age_to_class(row['age'])
 
-        return image, age_class
+            return image, label
+
+        except Exception as e:
+            print(f"Error loading image {img_path}: {e}")
+            # Return a new random index
+            return self.__getitem__((idx + 1) % len(self))
 
 
-class FocalLoss(nn.Module):
-    def __init__(self, num_classes, gamma=1.0, alpha_type='dynamic'):
-        super(FocalLoss, self).__init__()
+class AgeLossFunction:
+    """
+    年龄分类损失函数集合，包含多种损失函数组件
+    """
+
+    def __init__(
+            self,
+            num_classes,
+            device='cuda',
+            focal_gamma=1.0, focal_alpha_type='dynamic',
+            label_smoothing=0.1,
+            ordinal_weight=1.0,
+            distance_weight=1.0
+    ):
+        """
+        初始化损失函数
+
+        Args:
+            num_classes (int): 类别数量
+            device (str): 计算设备
+            focal_gamma (float): Focal Loss的gamma参数
+            focal_alpha_type (str): Focal Loss的alpha类型 ('dynamic' or 'fixed')
+            label_smoothing (float): 标签平滑参数
+            ordinal_weight (float): 序数损失权重
+            distance_weight (float): 距离惩罚权重
+        """
         self.num_classes = num_classes
-        self.gamma = gamma
-        self.alpha_type = alpha_type
-        self.alpha = None
+        self.device = device
+        self.focal_gamma = focal_gamma
+        self.focal_alpha_type = focal_alpha_type
+        self.label_smoothing = label_smoothing
+        self.ordinal_weight = ordinal_weight
+        self.distance_weight = distance_weight
 
-    def forward(self, inputs, targets):
+        # 初始化距离矩阵
+        self.distance_matrix = self._create_distance_matrix()
+
+    def _create_distance_matrix(self):
         """
-        inputs: [B, C] where C is the number of classes
-        targets: [B] where each value is the target class index
+        创建类别间距离矩阵
         """
-        # 确保输入的类别数量正确
+        matrix = torch.zeros((self.num_classes, self.num_classes))
+        for i in range(self.num_classes):
+            for j in range(self.num_classes):
+                matrix[i, j] = abs(i - j)
+        return matrix.to(self.device)
+
+    def focal_loss(
+            self,
+            inputs,
+            targets
+    ):
+        """
+        计算Focal Loss
+        """
         if inputs.size(1) != self.num_classes:
             raise ValueError(f"Expected {self.num_classes} classes in input, got {inputs.size(1)}")
 
-            # 计算动态权重
-        if self.alpha_type == 'dynamic':
-            # 计算当前batch中每个类别的样本数量
+        # 计算动态权重
+        if self.focal_alpha_type == 'dynamic':
             unique_classes, class_counts = torch.unique(targets, return_counts=True)
             total_samples = targets.size(0)
-
-            # 初始化alpha为zeros
-            self.alpha = torch.zeros(self.num_classes, device=inputs.device)
-
-            # 只为出现的类别计算权重
+            alpha = torch.zeros(self.num_classes, device=self.device)
             for cls, count in zip(unique_classes, class_counts):
-                self.alpha[cls] = 1.0 - (count / total_samples)
+                alpha[cls] = 1.0 - (count / total_samples)
+        else:
+            alpha = None
 
-                # 计算交叉熵
         ce_loss = F.cross_entropy(inputs, targets, reduction='none')
-
-        # 计算概率
         pt = torch.exp(-ce_loss)
 
-        # 应用focal loss公式
-        if self.alpha is not None:
-            alpha_t = self.alpha[targets]
-            focal_loss = alpha_t * (1 - pt) ** self.gamma * ce_loss
+        if alpha is not None:
+            alpha_t = alpha[targets]
+            focal_loss = alpha_t * (1 - pt) ** self.focal_gamma * ce_loss
         else:
-            focal_loss = (1 - pt) ** self.gamma * ce_loss
+            focal_loss = (1 - pt) ** self.focal_gamma * ce_loss
 
         return focal_loss.mean()
+
+    @staticmethod
+    def ordinal_loss(
+            inputs,
+            targets
+    ):
+        """
+        计算序数损失（考虑类别的顺序关系）
+
+        Args:
+            inputs (torch.Tensor): 模型输出 shape [B, C]
+            targets (torch.Tensor): 目标标签 shape [B]
+
+        Returns:
+            torch.Tensor: 序数损失值
+        """
+        probs = F.softmax(inputs, dim=1)
+        batch_size = inputs.size(0)
+
+        # 创建累积概率
+        cum_probs = torch.cumsum(probs, dim=1)
+
+        # 创建目标的二值化表示
+        target_matrix = torch.zeros_like(cum_probs)
+        for i in range(batch_size):
+            target_matrix[i, :targets[i]] = 1
+
+        # 计算二值交叉熵损失
+        ordinal_loss = F.binary_cross_entropy(cum_probs, target_matrix)
+        return ordinal_loss
+
+    def distance_penalty_loss(self, inputs, targets):
+        """
+        计算距离惩罚损失（惩罚预测与真实年龄组的距离）
+        """
+        probs = F.softmax(inputs, dim=1)
+        batch_size = inputs.size(0)
+
+        # 获取距离权重
+        distance_weights = self.distance_matrix[targets]
+
+        # 计算加权损失
+        weighted_probs = probs * distance_weights
+        distance_loss = weighted_probs.sum(dim=1).mean()
+
+        return distance_loss
+
+    @staticmethod
+    def label_smoothing_loss(
+            inputs,
+            targets,
+            num_classes,
+            smoothing
+    ):
+        """
+        计算带标签平滑的交叉熵损失
+
+        Args:
+            inputs (torch.Tensor): 模型输出
+            targets (torch.Tensor): 目标标签
+            num_classes (int): 类别数量
+            smoothing (float): 平滑参数
+
+        Returns:
+            torch.Tensor: 平滑损失值
+        """
+        batch_size = inputs.size(0)
+
+        # 创建平滑标签
+        smooth_targets = torch.zeros_like(inputs)
+        smooth_targets.fill_(smoothing / (num_classes - 1))
+        smooth_targets.scatter_(1, targets.unsqueeze(1), 1 - smoothing)
+
+        log_probs = F.log_softmax(inputs, dim=1)
+        loss = -(smooth_targets * log_probs).sum(dim=1).mean()
+
+        return loss
+
+    def __call__(self, inputs, targets):
+        """
+        计算总损失
+        """
+        # 计算各个组件损失
+        focal = self.focal_loss(inputs, targets)
+        ordinal = self.ordinal_loss(inputs, targets)
+        distance = self.distance_penalty_loss(inputs, targets)
+        smooth = self.label_smoothing_loss(inputs, targets)
+
+        # 组合损失
+        total_loss = focal + \
+                     self.ordinal_weight * ordinal + \
+                     self.distance_weight * distance + \
+                     smooth
+
+        return total_loss, {
+            'focal_loss': focal.item(),
+            'ordinal_loss': ordinal.item(),
+            'distance_loss': distance.item(),
+            'smooth_loss': smooth.item(),
+            'total_loss': total_loss.item()
+        }
+
+
+# class FocalLoss(nn.Module):
+#     def __init__(self, num_classes, gamma=1.0, alpha_type='dynamic'):
+#         super(FocalLoss, self).__init__()
+#         self.num_classes = num_classes
+#         self.gamma = gamma
+#         self.alpha_type = alpha_type
+#         self.alpha = None
+#
+#     def forward(self, inputs, targets):
+#         """
+#         inputs: [B, C] where C is the number of classes
+#         targets: [B] where each value is the target class index
+#         """
+#         # 确保输入的类别数量正确
+#         if inputs.size(1) != self.num_classes:
+#             raise ValueError(f"Expected {self.num_classes} classes in input, got {inputs.size(1)}")
+#
+#             # 计算动态权重
+#         if self.alpha_type == 'dynamic':
+#             # 计算当前batch中每个类别的样本数量
+#             unique_classes, class_counts = torch.unique(targets, return_counts=True)
+#             total_samples = targets.size(0)
+#
+#             # 初始化alpha为zeros
+#             self.alpha = torch.zeros(self.num_classes, device=inputs.device)
+#
+#             # 只为出现的类别计算权重
+#             for cls, count in zip(unique_classes, class_counts):
+#                 self.alpha[cls] = 1.0 - (count / total_samples)
+#
+#                 # 计算交叉熵
+#         ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+#
+#         # 计算概率
+#         pt = torch.exp(-ce_loss)
+#
+#         # 应用focal loss公式
+#         if self.alpha is not None:
+#             alpha_t = self.alpha[targets]
+#             focal_loss = alpha_t * (1 - pt) ** self.gamma * ce_loss
+#         else:
+#             focal_loss = (1 - pt) ** self.gamma * ce_loss
+#
+#         return focal_loss.mean()
 
 
 class DenseBlock(nn.Module):
@@ -1268,9 +1810,7 @@ class ImageTransforms:
     """图像转换处理类"""
 
     @staticmethod
-    def calculate_mean_std(
-            dataloader: DataLoader
-    ) -> Tuple[List[float], List[float]]:
+    def calculate_mean_std(dataloader: DataLoader) -> Tuple[List[float], List[float]]:
         """
         计算数据集的均值和标准差
 
@@ -1297,12 +1837,10 @@ class ImageTransforms:
 
         return mean.tolist(), std.tolist()
 
-    def __init__(
-            self,
-            input_size: Tuple[int, int] = (224, 224),
-            mean: Optional[List[float]] = None,
-            std: Optional[List[float]] = None
-    ):
+    def __init__(self,
+                 input_size: Tuple[int, int] = (224, 224),
+                 mean: Optional[List[float]] = None,
+                 std: Optional[List[float]] = None):
         """
         初始化转换器
 
@@ -1322,10 +1860,10 @@ class ImageTransforms:
         Returns:
             transforms.Compose: 基础转换pipeline
         """
-        return T.Compose([
-            T.Resize(self.input_size),
-            T.ToTensor(),
-            T.Normalize(mean=self.mean, std=self.std)
+        return transforms.Compose([
+            transforms.Resize(self.input_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=self.mean, std=self.std)
         ])
 
     def get_train_transforms(self) -> transforms.Compose:
