@@ -299,6 +299,7 @@ def get_groups(
 finish at 2024-10-31
 1. 400 epochs
    1. 3 stages. [0,7] -> [0,1,6,7] -> [0,1,2,5,6,7] -> [0,1,2,3,4,5,6,7]
+   2. Age bins: (0,2), (3,6), (7,12), (13,17), (18,35), (36,55), (56,70), (71,110)
 2. Batch Size = 128, Learning Rate = 1e-4, Gamma = 1.0 (Focal Loss)
 3. Performances:
    1. Training Epoch Summary:
@@ -350,3 +351,10 @@ finish at 2024-10-31
 1. The performances of class 4,5,6 are very bad. However, we have a lot of data of class 4,5,6 in the whole dataset, so I doubt that the weighted sampler has reduced the weight of data of class 4,5,6 because the weighted sampler calculates the weight of each class by the reciprocal of their frequency.
 2. The learning process is actually very slow, but the good new is that we are less much probable having overfitting on validation dataset.
 3. The curriculum learning is not easy determining the right stages to learn and process.
+
+### Future
+1. Increasing the age bins.
+2. Automating curriculum learning, that is, let itself find how to learn stages by stages, e.g. find which ages are hard to classify etc.
+3. Add more loss to focal loss, e.g. peak loss and smooth loss etc
+4. Modifying the base model architecture, e.g. channel/reduction of attentions
+5. Trying to focus more on data that is difficult to classify, i.e. class 4,5,6 in this version. 
