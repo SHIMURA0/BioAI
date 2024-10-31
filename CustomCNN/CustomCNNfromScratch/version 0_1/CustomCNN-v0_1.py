@@ -609,9 +609,11 @@ class CurriculumTrainer:
             scheduler,
             device,
             num_epochs,
-            focal_loss_params={'gamma': 1.0, 'alpha_type': 'dynamic'}
+            focal_loss_params=None
     ):
         # 基本属性初始化
+        if focal_loss_params is None:
+            focal_loss_params = {'gamma': 1.0, 'alpha_type': 'dynamic'}
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader

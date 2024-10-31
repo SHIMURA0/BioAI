@@ -347,10 +347,13 @@ finish at 2024-10-31
        2. 2024-10-31 11:30:03,026 - CurriculumTrainer - INFO - Recall: 75.37%
        3. 2024-10-31 11:30:03,027 - CurriculumTrainer - INFO - F1: 52.23%
 
-### Analysis 
+### Analysis
 1. The performances of class 4,5,6 are very bad. However, we have a lot of data of class 4,5,6 in the whole dataset, so I doubt that the weighted sampler has reduced the weight of data of class 4,5,6 because the weighted sampler calculates the weight of each class by the reciprocal of their frequency.
 2. The learning process is actually very slow, but the good new is that we are less much probable having overfitting on validation dataset.
 3. The curriculum learning is not easy determining the right stages to learn and process.
+
+### Mistake
+1. Forgetting to split the training and validation datasets, but apply WeightedRandomSampler and data augmentation on training dataset while validation dataset stays the origin label distribution.
 
 ### Future
 1. Increasing the age bins.
